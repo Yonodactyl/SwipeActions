@@ -308,7 +308,8 @@ public struct SwipeAction<Label: View, Background: View>: View {
             self.highlighted = pressing
         } perform: {}
         .buttonStyle(SwipeActionButtonStyle())
-        .onChange(of: swipeContext.state.wrappedValue) { previousState, state in /// Read changes in state.
+        .versionSpecificOnChange(of: swipeContext.state.wrappedValue, perform: { change in
+            let state = change.newValue
             guard let allowSwipeToTrigger, allowSwipeToTrigger else { return }
 
             if let state {
@@ -324,7 +325,7 @@ public struct SwipeAction<Label: View, Background: View>: View {
             } else {
                 highlighted = false
             }
-        }
+        })
         .preference(key: AllowSwipeToTriggerKey.self, value: allowSwipeToTrigger)
     }
 }
@@ -449,17 +450,18 @@ public struct SwipeView<Label, LeadingActions, TrailingActions>: View where Labe
                 .updatingVelocity($velocity),
             including: options.swipeEnabled ? .all : .subviews /// Enable/disable swiping here.
         )
-        .onChange(of: currentlyDragging) { previouslyDragged, currentlyDragging in /// Detect gesture cancellations.
+        .versionSpecificOnChange(of: currentlyDragging, perform: { change in
+            let currentlyDragging = change.newValue
             if !currentlyDragging, let latestDragGestureValueBackup {
                 /// Gesture cancelled.
                 let velocity = velocity.dx / currentOffset
                 end(value: latestDragGestureValueBackup, velocity: velocity)
             }
-        }
+        })
 
         // MARK: - Trigger haptics
-
-        .onChange(of: leadingState) { [leadingState] oldValue, newValue in
+        .versionSpecificOnChange(of: leadingState, perform: { change in
+            let newValue = change.newValue
             /// Make sure the change was from `triggering` to `nil`, or the other way around.
             let changed =
                 leadingState == .triggering && newValue == nil ||
@@ -471,9 +473,9 @@ public struct SwipeView<Label, LeadingActions, TrailingActions>: View where Labe
                 generator.impactOccurred()
                 #endif
             }
-        }
-        .onChange(of: trailingState) { [trailingState] oldValue, newValue in
-
+        })
+        .versionSpecificOnChange(of: trailingState, perform: { change in
+            let newValue = change.newValue
             let changed =
                 trailingState == .triggering && newValue == nil ||
                 trailingState == nil && newValue == .triggering
@@ -484,26 +486,28 @@ public struct SwipeView<Label, LeadingActions, TrailingActions>: View where Labe
                 generator.impactOccurred()
                 #endif
             }
-        }
+        })
 
         // MARK: - Receive `SwipeViewGroup` events
-
-        .onChange(of: currentlyDragging) { oldValue, newValue in
+        .versionSpecificOnChange(of: currentlyDragging, perform: { change in
+            let newValue = change.newValue
             if newValue {
                 swipeViewGroupSelection.wrappedValue = id
             }
-        }
-        .onChange(of: leadingState) { oldValue, newValue in
+        })
+        .versionSpecificOnChange(of: leadingState, perform: { change in
+            let newValue = change.newValue
             if newValue == .closed, swipeViewGroupSelection.wrappedValue == id {
                 swipeViewGroupSelection.wrappedValue = nil
             }
-        }
-        .onChange(of: trailingState) { oldValue, newValue in
+        })
+        .versionSpecificOnChange(of: trailingState, perform: { change in
+            let newValue = change.newValue
             if newValue == .closed, swipeViewGroupSelection.wrappedValue == id {
                 swipeViewGroupSelection.wrappedValue = nil
             }
-        }
-        .onChange(of: swipeViewGroupSelection.wrappedValue) { oldValue, newValue in
+        })
+        .versionSpecificOnChange(of: swipeViewGroupSelection.wrappedValue, perform: { change in
             if swipeViewGroupSelection.wrappedValue != id {
                 currentSide = nil
 
@@ -517,7 +521,7 @@ public struct SwipeView<Label, LeadingActions, TrailingActions>: View where Labe
                     close(velocity: 0)
                 }
             }
-        }
+        })
     }
 }
 
@@ -704,7 +708,7 @@ struct SwipeActionsLayout: _VariadicView_UnaryViewRoot {
         .onAppear { /// Set the number of actions here.
             numberOfActions = children.count
         }
-        .onChange(of: children.count) { oldCount, count in
+        .onChange(of: children.count) { count in
             numberOfActions = count
         }
     }
@@ -1427,4 +1431,34 @@ struct ContentSizeReaderPreferenceKey: PreferenceKey {
 struct AllowSwipeToTriggerKey: PreferenceKey {
     static var defaultValue: Bool? = nil
     static func reduce(value: inout Bool?, nextValue: () -> Bool?) { value = nextValue() }
+}
+
+struct Change<Value> where Value: Equatable {
+    var oldValue: Value?
+    var newValue: Value
+}
+
+struct VersionSpecificOnChangeModifier<Value>: ViewModifier where Value: Equatable {
+    var value: Value
+    let action: (Change<Value>) -> Void
+    
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content
+                .onChange(of: value) { oldValue, newValue in
+                    action(Change(oldValue: oldValue, newValue: newValue))
+                }
+        } else {
+            content
+                .onChange(of: value) { newValue in
+                    action(Change(oldValue: nil, newValue: newValue))
+                }
+        }
+    }
+}
+
+extension View {
+    func versionSpecificOnChange<Value>(of value: Value, perform action: @escaping (Change<Value>) -> Void) -> some View where Value: Equatable {
+        self.modifier(VersionSpecificOnChangeModifier(value: value, action: action))
+    }
 }
