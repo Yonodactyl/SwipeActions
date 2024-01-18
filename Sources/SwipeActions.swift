@@ -308,7 +308,7 @@ public struct SwipeAction<Label: View, Background: View>: View {
             self.highlighted = pressing
         } perform: {}
         .buttonStyle(SwipeActionButtonStyle())
-        .onChange(of: swipeContext.state.wrappedValue) { state in /// Read changes in state.
+        .onChange(of: swipeContext.state.wrappedValue) { previousState, state in /// Read changes in state.
             guard let allowSwipeToTrigger, allowSwipeToTrigger else { return }
 
             if let state {
@@ -449,7 +449,7 @@ public struct SwipeView<Label, LeadingActions, TrailingActions>: View where Labe
                 .updatingVelocity($velocity),
             including: options.swipeEnabled ? .all : .subviews /// Enable/disable swiping here.
         )
-        .onChange(of: currentlyDragging) { currentlyDragging in /// Detect gesture cancellations.
+        .onChange(of: currentlyDragging) { previouslyDragged, currentlyDragging in /// Detect gesture cancellations.
             if !currentlyDragging, let latestDragGestureValueBackup {
                 /// Gesture cancelled.
                 let velocity = velocity.dx / currentOffset
@@ -459,47 +459,51 @@ public struct SwipeView<Label, LeadingActions, TrailingActions>: View where Labe
 
         // MARK: - Trigger haptics
 
-        .onChange(of: leadingState) { [leadingState] newValue in
+        .onChange(of: leadingState) { [leadingState] oldValue, newValue in
             /// Make sure the change was from `triggering` to `nil`, or the other way around.
             let changed =
                 leadingState == .triggering && newValue == nil ||
                 leadingState == nil && newValue == .triggering
 
             if changed, options.enableTriggerHaptics { /// Generate haptic feedback if necessary.
+                #if !os(visionOS)
                 let generator = UIImpactFeedbackGenerator(style: .rigid)
                 generator.impactOccurred()
+                #endif
             }
         }
-        .onChange(of: trailingState) { [trailingState] newValue in
+        .onChange(of: trailingState) { [trailingState] oldValue, newValue in
 
             let changed =
                 trailingState == .triggering && newValue == nil ||
                 trailingState == nil && newValue == .triggering
 
             if changed, options.enableTriggerHaptics {
+                #if !os(visionOS)
                 let generator = UIImpactFeedbackGenerator(style: .rigid)
                 generator.impactOccurred()
+                #endif
             }
         }
 
         // MARK: - Receive `SwipeViewGroup` events
 
-        .onChange(of: currentlyDragging) { newValue in
+        .onChange(of: currentlyDragging) { oldValue, newValue in
             if newValue {
                 swipeViewGroupSelection.wrappedValue = id
             }
         }
-        .onChange(of: leadingState) { newValue in
+        .onChange(of: leadingState) { oldValue, newValue in
             if newValue == .closed, swipeViewGroupSelection.wrappedValue == id {
                 swipeViewGroupSelection.wrappedValue = nil
             }
         }
-        .onChange(of: trailingState) { newValue in
+        .onChange(of: trailingState) { oldValue, newValue in
             if newValue == .closed, swipeViewGroupSelection.wrappedValue == id {
                 swipeViewGroupSelection.wrappedValue = nil
             }
         }
-        .onChange(of: swipeViewGroupSelection.wrappedValue) { newValue in
+        .onChange(of: swipeViewGroupSelection.wrappedValue) { oldValue, newValue in
             if swipeViewGroupSelection.wrappedValue != id {
                 currentSide = nil
 
@@ -700,7 +704,7 @@ struct SwipeActionsLayout: _VariadicView_UnaryViewRoot {
         .onAppear { /// Set the number of actions here.
             numberOfActions = children.count
         }
-        .onChange(of: children.count) { count in
+        .onChange(of: children.count) { oldCount, count in
             numberOfActions = count
         }
     }
